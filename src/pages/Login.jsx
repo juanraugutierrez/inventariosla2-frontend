@@ -1,50 +1,54 @@
 import React, { useState } from 'react';
-import { FaEnvelope, FaLock, FaSignInAlt, FaBoxOpen } from 'react-icons/fa';
 
-export default function Login({ onLoginSuccess }) {
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+  // 🔑 URL DE PRODUCCIÓN ACTUALIZADA CORPORATIVA
+  const API_URL = "https://api.sla-inventario.cl/api";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+
     if (!email.trim() || !password.trim()) {
-      setError("Por favor, rellene todos los campos requeridos.");
+      setError('Por favor, complete todos los campos.');
       return;
     }
 
     try {
       setLoading(true);
-      setError(null);
-
-      // 🔑 DECLARACIÓN: Declaramos 'response' de forma correcta
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim(),
-          password: password.trim()
-        })
+        body: JSON.stringify({ email: email.trim(), password: password.trim() })
       });
 
       const data = await response.json();
 
-      // 🛠️ CORRECCIÓN DEL ERROR: Ahora 'response' está perfectamente definido
       if (!response.ok) {
-        throw new Error(data.error || "Fallo al conectar con el servidor de autenticación.");
+        throw new Error(data.error || 'Error al intentar iniciar sesión.');
       }
 
-      // Guardamos de forma persistente el Token JWT en el navegador
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('usuario_nombre', data.user?.nombre || 'Usuario');
-      localStorage.setItem('usuario_rol', data.user?.rol || 'Operario');
+      const usuarioCompleto = data.usuario ? { ...data.usuario, permisos: data.permisos || data.usuario.permisos || [] } : data;
 
-      // 🔑 LLAMADA AL APP.JSX: Notificamos al App.jsx para que monte el Layout completo
-      if (onLoginSuccess) {
-        onLoginSuccess();
+      if (usuarioCompleto) {
+        // 🔒 ADICIÓN MAESTRA DE SEGURIDAD: Seteamos los datos de usuario y estampamos el timestamp inicial
+        localStorage.setItem('usuario_sesion', JSON.stringify(usuarioCompleto));
+        localStorage.setItem('ultima_actividad_erp', Date.now().toString());
+        
+        const perfilNormalizado = String(usuarioCompleto.perfil_nombre || usuarioCompleto.perfil || usuarioCompleto.cargo || '').toUpperCase().trim();
+        const listaPermisos = usuarioCompleto.permisos || [];
+
+        if (perfilNormalizado === 'ADMINISTRADOR' || listaPermisos.includes('Visualizar Dashboard')) {
+          window.location.href = '/dashboard';
+        } else {
+          window.location.href = '/products';
+        }
+      } else {
+        throw new Error('Estructura de sesión inválida devuelta por el servidor.');
       }
 
     } catch (err) {
@@ -55,80 +59,61 @@ export default function Login({ onLoginSuccess }) {
   };
 
   return (
-    <div className="d-flex align-items-center justify-content-center min-vh-100 bg-dark text-white" style={{ background: 'linear-gradient(135deg, #212529 0%, #343a40 100%)', width: '100vw', position: 'fixed', top: 0, left: 0, zIndex: 9999 }}>
-      <div className="card border-0 shadow-lg p-4" style={{ width: '100%', maxWidth: '420px', backgroundColor: '#ffffff', borderRadius: '12px' }}>
-        <div className="card-body text-center">
-          
-          {/* Isotipo del Sistema */}
-          <div className="d-inline-flex align-items-center justify-content-center bg-dark text-white rounded-circle mb-3 shadow" style={{ width: '65px', height: '65px' }}>
-            <FaBoxOpen size={32} />
-          </div>
-          
-          <h3 className="fw-bold text-dark mb-1">Control de Inventario</h3>
-          <p className="text-muted small mb-4">Ingresa tus credenciales corporativas</p>
-
-          {error && (
-            <div className="alert alert-danger py-2 px-3 text-start small border-0 shadow-sm" role="alert">
-              <strong>⚠️ Acceso Denegado:</strong> {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="text-start">
-            
-            {/* Input Correo */}
-            <div className="mb-3">
-              <label className="form-label small fw-bold text-secondary">Correo Electrónico</label>
-              <div className="input-group">
-                <span className="input-group-text bg-light border-end-0"><FaEnvelope className="text-muted small" /></span>
-                <input 
-                  type="email" 
-                  className="form-control bg-light border-start-0 text-dark" 
-                  placeholder="nombre@empresa.com" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={loading}
-                  required 
-                />
-              </div>
-            </div>
-
-            {/* Input Clave */}
-            <div className="mb-4">
-              <label className="form-label small fw-bold text-secondary">Contraseña</label>
-              <div className="input-group">
-                <span className="input-group-text bg-light border-end-0"><FaLock className="text-muted small" /></span>
-                <input 
-                  type="password" 
-                  className="form-control bg-light border-start-0 text-dark" 
-                  placeholder="••••••••" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={loading}
-                  required 
-                />
-              </div>
-            </div>
-
-            {/* Botón de Envío */}
-            <button 
-              type="submit" 
-              className="btn btn-dark w-100 fw-bold py-2.5 shadow d-flex align-items-center justify-content-center gap-2"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                  Verificando...
-                </>
-              ) : (
-                <>
-                  <FaSignInAlt /> Iniciar Sesión
-                </>
-              )}
-            </button>
-          </form>
-
+    <div className="d-flex align-items-center justify-content-center bg-dark" style={{ minHeight: '100vh', width: '100vw' }}>
+      <div className="card shadow-lg border-0 p-4 rounded-3 bg-white" style={{ width: '400px' }}>
+        <div className="text-center mb-4">
+          <h2 className="fw-bold text-dark mb-1">📦 Sistema ERP</h2>
+          <p className="text-muted small">Gestión de Inventario y Accesos Central</p>
         </div>
+
+        {error && (
+          <div className="alert alert-danger p-2 small text-center fw-semibold animate__animated animate__fadeIn">
+            ⚠️ {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit}>
+          <div className="mb-3">
+            <label className="form-label text-secondary small fw-bold">Correo Electrónico:</label>
+            <input
+              type="email"
+              className="form-control form-control-md"
+              placeholder="nombre@empresa.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              required
+            />
+          </div>
+
+          <div className="mb-4">
+            <label className="form-label text-secondary small fw-bold">Contraseña del Sistema:</label>
+            <input
+              type="password"
+              className="form-control form-control-md"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-dark btn-md w-100 fw-bold py-2 d-flex align-items-center justify-content-center gap-2"
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                Autenticando...
+              </>
+            ) : (
+              'Ingresar al Panel'
+            )}
+          </button>
+        </form>
       </div>
     </div>
   );

@@ -3,7 +3,9 @@ import { Form, Button, Card, Alert, Row, Col, Table, Spinner } from "react-boots
 import { FaPlusCircle, FaWarehouse, FaBarcode, FaTrash, FaFileInvoiceDollar, FaTools } from "react-icons/fa";
 
 export default function StockIngress() {
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+ const API_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3000/api"              // 💻 Servidor Local (HTTP plano sin SSL)
+    : "https://api.sla-inventario.cl/api";
 
   const [bodegas, setBodegas] = useState([]);
   const [productos, setProductos] = useState([]);

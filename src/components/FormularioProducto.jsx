@@ -18,7 +18,9 @@ export default function FormularioProducto({ productoEditar, onAccionTerminada }
   const [loading, setLoading] = useState(false);
   const [notificacion, setNotificacion] = useState({ tipo: '', texto: '' });
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+ const API_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3000/api"              // 💻 Servidor Local (HTTP plano sin SSL)
+    : "https://api.sla-inventario.cl/api";
 
   // Cargar Categorías y Subcategorías al montar el componente
   useEffect(() => {

@@ -3,7 +3,10 @@ import { Table, Button, Modal, Form, Card, Alert, Pagination } from "react-boots
 import { FaFolderPlus, FaEdit, FaTrash, FaEye, FaFolderOpen, FaPlusCircle } from "react-icons/fa";
 
 function Categories() {
-  const API_URL = "http://localhost:3000/api";
+  // const API_URL = "http://localhost:3000/api";
+  const API_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3000/api"              // 💻 Servidor Local (HTTP plano sin SSL)
+    : "https://api.sla-inventario.cl/api";
 
   // Estados Principales
   const [categorias, setCategorias] = useState([]);

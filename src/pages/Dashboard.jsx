@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, ResponsiveContainer
 } from "recharts";
-import { FaBoxes, FaChartPie, FaCalendarAlt, FaLayerGroup, FaSyncAlt } from "react-icons/fa";
+import { FaBoxes, FaCalendarAlt, FaLayerGroup, FaSyncAlt } from "react-icons/fa";
 
 function Dashboard() {
   const [loading, setLoading] = useState(true);
@@ -16,57 +16,88 @@ function Dashboard() {
     emergenciasRepuestos: 0,
     mantenimientoCorrectivo: 0,
     herramientasEnTerreno: 0,
-    totalSkus: 0 // 🔑 Nueva métrica inicializada
+    totalSkus: 0 
   });
   
   const [stockByCategory, setStockByCategory] = useState([]);
   const [unitsByCategory, setUnitsByCategory] = useState([]);
   const [gastosTerreno, setGastosTerreno] = useState([]);
-  const [distribucionSkuPorCategoria, setDistribucionSkuPorCategoria] = useState([]); // 🔑 Nuevo estado para la distribución de SKUs
+  const [distribucionSkuPorCategoria, setDistribucionSkuPorCategoria] = useState([]); 
 
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+  // 🛡️ ENRUTADOR DE ENTORNOS SEGURO: Evita Contenido Mixto en nube y errores de OpenSSL en Local
+  const API_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3000/api"              // 💻 Servidor Local (HTTP plano sin SSL)
+    : "https://api.sla-inventario.cl/api";     // ☁️ Servidor de Producción (HTTPS Seguro)
+  
   const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884d8"];
 
-  // 🔄 FUNCIÓN MAESTRA DE CARGA REUTILIZABLE PARA EL BOTÓN DE ACTUALIZACIÓN
+  // 🔄 FUNCIÓN MAESTRA DE CARGA ADAPTADA A FORMATOS DE RED
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_URL}/dashboard`);
-      if (!response.ok) throw new Error("Error al obtener las métricas del servidor.");
-      
-      const data = await response.json();
 
-      // Mapear los KPIs existentes y la nueva métrica totalSkus
-      setKpis({
-        stockMonetizado: data.kpis?.stockMonetizado || 0,
-        activoFisico: data.kpis?.activoFisico || 0,
-        activoCirculante: data.kpis?.activoCirculante || 0,
-        consumoProyectos: data.kpis?.consumoProyectos || 0,
-        emergenciasRepuestos: data.kpis?.emergenciasRepuestos || 0,
-        mantenimientoCorrectivo: data.kpis?.mantenimientoCorrectivo || 0,
-        herramientasEnTerreno: data.kpis?.herramientasEnTerreno || 0,
-        totalSkus: data.kpis?.totalSkus || 0 // 🔑 Consumo del nuevo KPI numérico
+      // Extraer el token de autorización de la sesión para poblar las métricas reales
+      const sesionGuardada = localStorage.getItem('usuario_sesion');
+      let token = "";
+      if (sesionGuardada) {
+        try {
+          const datosParseados = JSON.parse(sesionGuardada);
+          token = datosParseados.token || datosParseados.usuario?.token || "";
+        } catch (e) {
+          console.error("Error al desempaquetar token de sesión:", e);
+        }
+      }
+
+      const response = await fetch(`${API_URL}/dashboard`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        }
       });
 
-      setStockByCategory(data.stockMonetizadoPorCategoria || []);
-      setUnitsByCategory(data.unidadesPorCategoria || []);
-      setGastosTerreno(data.kpisGastosTerreno || []);
-      setDistribucionSkuPorCategoria(data.distribucionSkuPorCategoria || []); // 🔑 Consumo del nuevo arreglo mapeado
+      if (!response.ok) throw new Error("Error al obtener las métricas del servidor.");
+      
+      const resRaw = await response.json();
+      
+      // Desempaquetador por si la API viene envuelta en .data por proxies inversos
+      const data = resRaw.data ? resRaw.data : resRaw;
+      
+      console.log("📊 [DEBUG] Datos procesados en el Dashboard:", data);
 
-      // Capturar fecha y hora de la sincronización
+      // Asignación estricta de variables numéricas desde el JSON
+      if (data && data.kpis) {
+        setKpis({
+          stockMonetizado: Number(data.kpis.stockMonetizado || 0),
+          activoFisico: Number(data.kpis.activoFisico || 0),
+          activoCirculante: Number(data.kpis.activoCirculante || 0),
+          consumoProyectos: Number(data.kpis.consumoProyectos || 0),
+          emergenciasRepuestos: Number(data.kpis.emergenciasRepuestos || 0),
+          mantenimientoCorrectivo: Number(data.kpis.mantenimientoCorrectivo || 0),
+          herramientasEnTerreno: Number(data.kpis.herramientasEnTerreno || 0),
+          totalSkus: Number(data.kpis.totalSkus || 0)
+        });
+      }
+
+      // Inyección segura de arreglos para evitar fallos de renderizado en Recharts
+      setStockByCategory(Array.isArray(data.stockMonetizadoPorCategoria) ? data.stockMonetizadoPorCategoria : []);
+      setUnitsByCategory(Array.isArray(data.unidadesPorCategoria) ? data.unidadesPorCategoria : []);
+      setGastosTerreno(Array.isArray(data.kpisGastosTerreno) ? data.kpisGastosTerreno : []);
+      setDistribucionSkuPorCategoria(Array.isArray(data.distribucionSkuPorCategoria) ? data.distribucionSkuPorCategoria : []);
+
       const ahora = new Date();
       setFechaConsulta(ahora.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" }));
       
       setLoading(false);
     } catch (error) {
-      console.error("Error cargando dashboard:", error);
+      console.error("❌ Error mapeando el JSON del dashboard:", error);
       setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchDashboardData();
-  }, [API_URL]);
+  }, []);
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(value);
@@ -76,7 +107,7 @@ function Dashboard() {
     return (
       <div className="d-flex flex-column justify-content-center align-items-center" style={{ minHeight: "80vh" }}>
         <div className="spinner-border text-dark mb-3" role="status" style={{ width: "3rem", height: "3rem" }}></div>
-        <h6 className="text-secondary fw-semibold">Sincronizando paneles con MySQL de Servilift...</h6>
+        <h6 className="text-secondary fw-semibold">Sincronizando paneles operacionales con el servidor...</h6>
       </div>
     );
   }
@@ -91,8 +122,7 @@ function Dashboard() {
           <small className="text-muted">Indicadores Operacionales y Financieros globales</small>
         </div>
         <div className="d-flex align-items-center gap-2">
-          {/* 🔑 BOTÓN DE ACTUALIZACIÓN REINCORPORADO PERFECTAMENTE */}
-          <button className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 border shadow-sm bg-white" onClick={fetchDashboardData}>
+          <button className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-2 border shadow-sm bg-white font-sans fw-bold" onClick={fetchDashboardData}>
             <FaSyncAlt /> Sincronizar Ahora
           </button>
           <div className="badge bg-white text-dark shadow-sm px-3 py-2 border rounded-3 d-flex align-items-center gap-2 font-monospace" style={{ fontSize: "0.85rem" }}>
@@ -103,7 +133,6 @@ function Dashboard() {
 
       {/* BLOQUE 1: TARJETAS DE INDICADORES CLAVE (KPIs) */}
       <div className="row g-3 mb-4">
-        {/* KPI 1: Capital Inmovilizado en Bodega */}
         <div className="col-12 col-sm-6 col-md-3">
           <div className="card p-3 shadow-sm border-0 bg-white rounded-3 h-100" style={{ borderLeft: "4px solid #0088FE" }}>
             <span className="text-muted fw-bold text-uppercase font-monospace" style={{ fontSize: "0.7rem", letterSpacing: "0.5px" }}>Capital Inmovilizado</span>
@@ -112,7 +141,6 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* KPI 2: Activos Circulantes */}
         <div className="col-12 col-sm-6 col-md-3">
           <div className="card p-3 shadow-sm border-0 bg-white rounded-3 h-100" style={{ borderLeft: "4px solid #00C49F" }}>
             <span className="text-muted fw-bold text-uppercase font-monospace" style={{ fontSize: "0.7rem", letterSpacing: "0.5px" }}>Activo Circulante</span>
@@ -121,7 +149,6 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* KPI 3: Activos Fijos */}
         <div className="col-12 col-sm-6 col-md-3">
           <div className="card p-3 shadow-sm border-0 bg-white rounded-3 h-100" style={{ borderLeft: "4px solid #FFBB28" }}>
             <span className="text-muted fw-bold text-uppercase font-monospace" style={{ fontSize: "0.7rem", letterSpacing: "0.5px" }}>Activo Fijo</span>
@@ -130,7 +157,6 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* 🔑 TARJETA KPI 4 ACTUALIZADA: TOTAL DE SKUs REALES DESDE EL BACKEND */}
         <div className="col-12 col-sm-6 col-md-3">
           <div className="card p-3 shadow-sm border-0 bg-white rounded-3 h-100" style={{ borderLeft: "4px solid #212529" }}>
             <div className="d-flex align-items-center justify-content-between">
@@ -212,7 +238,7 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* BLOQUE 4: SECCIÓN DE VOLUMEN FÍSICO Y GRÁFICO/TABLA DE SKU */}
+      {/* BLOQUE 4: SECCIÓN DE VOLUMEN FÍSICO Y TABLA DE SKU */}
       <div className="row g-4">
         <div className="col-12 col-md-6 col-lg-5">
           <div className="card p-3 shadow-sm border-0 bg-white rounded-3 h-100">
@@ -242,7 +268,6 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* 🔑 GRÁFICO Y TABLA DE SKU POR CATEGORÍA INTEGRADO TOTALMENTE */}
         <div className="col-12 col-md-6 col-lg-7">
           <div className="card shadow-sm border-0 bg-white rounded-3 h-100">
             <div className="card-header bg-white py-3 border-0 d-flex align-items-center justify-content-between">

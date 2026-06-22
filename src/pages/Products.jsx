@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { Table, Button, Modal, Form, Row, Col, Alert, Spinner, Card, Badge, Pagination } from "react-bootstrap";
-import { FaPlus, FaEdit, FaTrashAlt, FaBarcode, FaBoxOpen, FaFileExcel, FaImage, FaSearch, FaTags } from "react-icons/fa";
+import { FaPlus, FaEdit, FaTrashAlt, FaBarcode, FaBoxOpen, FaFileExcel, FaImage, FaSearch, FaTags, FaPrint } from "react-icons/fa";
+// 📦 Componente de renderizado de barras Code 128
+import Barcode from "react-barcode";
 
 export default function Products() {
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+ const API_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3000/api"              // 💻 Servidor Local (HTTP plano sin SSL)
+    : "https://api.sla-inventario.cl/api";
 
   // --- ESTADOS DE DATOS ---
   const [productos, setProductos] = useState([]);
@@ -11,7 +15,7 @@ export default function Products() {
   const [subcategoriasTotales, setSubcategoriasTotales] = useState([]);
   const [subcategoriasFiltradas, setSubcategoriasFiltradas] = useState([]);
 
-  // --- 🔍 ESTADOS PARA FILTROS DINÁMICOS EN TIEMPO REAL ---
+  // --- 🔍 ESTADOS PARA FILTROS DINÁMICOS ---
   const [busquedaNombre, setBusquedaNombre] = useState("");
   const [filtroSku, setFiltroSku] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("");
@@ -22,25 +26,53 @@ export default function Products() {
 
   // --- ESTADOS DE INTERFAZ ---
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [procesando, setProcesando] = useState(false);
   const [file, setFile] = useState(null);
+
+  // --- 🌟 ESTADO UNIFICADO PARA MENSAJES TEMPORALES (UX DE 6 SEGUNDOS) ---
+  const [mensaje, setMensaje] = useState({ texto: "", tipo: "" });
 
   // --- CONTROL DE MODALES ---
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [currentId, setCurrentId] = useState(null);
 
+  // 🏷️ ESTADOS EXCLUSIVOS PARA IMPRESIÓN DE ETIQUETA BARCODE DIRECTA
+  const [showBarcodeModal, setShowBarcodeModal] = useState(false);
+  const [productoParaEtiqueta, setProductoParaEtiqueta] = useState(null);
+
   // --- ESTADO DEL FORMULARIO ---
   const [formData, setFormData] = useState({
     codigo_sku: "",
     nombre: "",
     descripcion: "",
-    url_foto: "", // Guardará el string serializado en Base64
+    url_foto: "", 
     precio_promedio: 0,
     categoria_id: "",
     subcategoria_id: ""
   });
+
+  // 🌟 FUNCIÓN MAESTRA DE NOTIFICACIÓN (Máximo 6 segundos + Limpieza por superposición)
+  const notificar = (texto, tipo) => {
+    // 1. Borramos inmediatamente cualquier alerta previa activa en pantalla
+    setMensaje({ texto: "", tipo: "" });
+    
+    // 2. Esperamos un microsegundo para renderizar el nuevo estado y evitar conflictos de transiciones
+    setTimeout(() => {
+      setMensaje({ texto, tipo });
+    }, 50);
+
+    // 3. Configuramos el temporizador exacto de 6 segundos para desvanecer la alerta
+    setTimeout(() => {
+      setMensaje((prev) => {
+        // Solo la borramos si el texto no fue cambiado por otra operación en el camino
+        if (prev.texto === texto) {
+          return { texto: "", tipo: "" };
+        }
+        return prev;
+      });
+    }, 6000);
+  };
 
   // --- 1. CARGA INICIAL DE CATÁLOGOS RELACIONALES ---
   useEffect(() => {
@@ -65,11 +97,9 @@ export default function Products() {
         setProductos(dataProd);
         setCategorias(dataCat);
         setSubcategoriasTotales(dataSub);
-
-        setError(null);
       } catch (err) {
         console.error("Fallo crítico en la carga relacional:", err);
-        setError("Error de sincronización con la API de inventario de Servilift.");
+        notificar("Error de sincronización con la API de inventario.", "danger");
       } finally {
         setLoading(false);
       }
@@ -134,7 +164,6 @@ export default function Products() {
     return cumpleNombre && cumpleSku && cumpleCategoria;
   });
 
-  // Extraer las categorías de forma dinámica basadas en los nombres presentes en el arreglo
   const listaCategoriasMadre = [
     ...new Set(productos.map((p) => p.categoria_nombre).filter(Boolean)),
   ];
@@ -142,12 +171,10 @@ export default function Products() {
   // --- 📊 CÓMPUTO SECUENCIAL DE LA PAGINACIÓN ---
   const totalItemsFiltrados = productosFiltrados.length;
   const totalPaginas = Math.ceil(totalItemsFiltrados / itemsPorPagina);
-  // Validamos que si el filtro reduce los datos, la página actual no quede desbordada
   const paginaValida = paginaActual > totalPaginas ? 1 : paginaActual;
 
   const indiceUltimoItem = paginaValida * itemsPorPagina;
   const indicePrimerItem = indiceUltimoItem - itemsPorPagina;
-  // Este es el arreglo segmentado definitivo que se renderiza en las filas <tr> de la tabla
   const productosPaginados = productosFiltrados.slice(indicePrimerItem, indiceUltimoItem);
 
   // --- 3. MANEJADORES DE EVENTOS ---
@@ -191,15 +218,23 @@ export default function Products() {
     setShowModal(true);
   };
 
+  const handleOpenBarcode = (prod) => {
+    setProductoParaEtiqueta(prod);
+    setShowBarcodeModal(true);
+  };
+
+  const handlePrintBarcode = () => {
+    window.print();
+  };
+
   const handleSaveProduct = async (e) => {
     e.preventDefault();
-    setError(null);
-    setSuccess(null);
 
     const endpoint = isEdit ? `${API_URL}/productos/${currentId}` : `${API_URL}/productos`;
     const method = isEdit ? "PUT" : "POST";
 
     try {
+      setProcesando(true);
       const response = await fetch(endpoint, {
         method: method,
         headers: { "Content-Type": "application/json" },
@@ -216,16 +251,18 @@ export default function Products() {
       const resData = await response.json();
 
       if (response.ok) {
-        setSuccess(isEdit ? "Artículo modificado con éxito." : "Nuevo artículo catalogado correctamente.");
+        notificar(isEdit ? "Artículo modificado con éxito." : "Nuevo artículo catalogado correctamente.", "success");
         setShowModal(false);
         
         const refetch = await fetch(`${API_URL}/productos`);
         if (refetch.ok) setProductos(await refetch.json());
       } else {
-        setError(resData.error || "Ocurrió un inconveniente al procesar la operación.");
+        notificar(resData.error || "Ocurrió un inconveniente al procesar la operación.", "danger");
       }
     } catch (err) {
-      setError("Error de red. No se pudo conectar con el servidor backend.");
+      notificar("Error de red. No se pudo conectar con el servidor backend.", "danger");
+    } finally {
+      setProcesando(false);
     }
   };
 
@@ -237,13 +274,13 @@ export default function Products() {
       const data = await response.json();
 
       if (response.ok) {
-        setSuccess("El artículo fue removido de forma definitiva.");
+        notificar("El artículo fue removido de forma definitiva.", "success");
         setProductos(productos.filter((p) => p.id !== id));
       } else {
-        setError(data.error || "La base de datos denegó la eliminación.");
+        notificar(data.error || "La base de datos denegó la eliminación.", "danger");
       }
     } catch (err) {
-      setError("Error crítico al procesar la baja del material.");
+      notificar("Error crítico al procesar la baja del material.", "danger");
     }
   };
 
@@ -258,7 +295,7 @@ export default function Products() {
     fileFormData.append("excelFile", file);
 
     try {
-      setLoading(true);
+      setProcesando(true);
       const response = await fetch(`${API_URL}/productos/cargar-masivo`, {
         method: "POST",
         body: fileFormData
@@ -267,22 +304,35 @@ export default function Products() {
       const resData = await response.json();
 
       if (response.ok) {
-        setSuccess(`¡Proceso exitoso! Se insertaron ${resData.count} artículos indexados bajo la norma.`);
+        notificar(`¡Proceso exitoso! Se insertaron ${resData.count} artículos indexados bajo la norma.`, "success");
         setFile(null);
         const refetch = await fetch(`${API_URL}/productos`);
         if (refetch.ok) setProductos(await refetch.json());
       } else {
-        setError(resData.error || "Error en el parsing de la planilla.");
+        notificar(resData.error || "Error en el parsing de la planilla.", "danger");
       }
     } catch (err) {
-      setError("Fallo en la comunicación multipart con el servidor.");
+      notificar("Fallo en la comunicación multipart con el servidor.", "danger");
     } finally {
-      setLoading(false);
+      setProcesando(false);
     }
   };
 
   return (
     <div className="container-fluid px-4 py-2">
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #print-barcode-area, #print-barcode-area * { visibility: visible; }
+          #print-barcode-area {
+            position: absolute; left: 50%; top: 30%;
+            transform: translate(-50%, -50%) scale(1.3); text-align: center;
+          }
+          .modal-footer, .modal-header, .btn-close { display: none !important; }
+          .modal-dialog { margin: 0 !important; padding: 0 !important; }
+        }
+      `}</style>
+
       <div className="d-flex justify-content-between align-items-center mb-4">
         <div>
           <h2 className="text-dark fw-bold mb-1">📋 Gestión de Catálogo Maestro e Inventario</h2>
@@ -293,8 +343,17 @@ export default function Products() {
         </Button>
       </div>
 
-      {error && <Alert variant="danger" onClose={() => setError(null)} dismissible>{error}</Alert>}
-      {success && <Alert variant="success" onClose={() => setSuccess(null)} dismissible>{success}</Alert>}
+      {/* 🌟 BARRA DE MENSAJES TEMPORALIZADA A 6 SEGUNDOS E INTERCAMBIABLE */}
+      {mensaje.texto && (
+        <Alert 
+          variant={mensaje.tipo === "danger" ? "danger" : "success"} 
+          onClose={() => setMensaje({ texto: "", tipo: "" })} 
+          dismissible 
+          className="shadow-sm border-0 small fw-bold text-center mb-4 rounded-3 p-3 animate__animated animate__fadeInDown"
+        >
+          {mensaje.texto}
+        </Alert>
+      )}
 
       {/* IMPORTACIÓN MASIVA */}
       <Card className="border-0 shadow-sm mb-4 bg-white">
@@ -311,15 +370,15 @@ export default function Products() {
               <Form.Control type="file" size="sm" accept=".xlsx, .xls" onChange={(e) => setFile(e.target.files[0])} className="border-success" />
             </Col>
             <Col md={3}>
-              <Button type="submit" variant="success" size="sm" className="w-100 fw-bold d-flex align-items-center justify-content-center gap-2">
-                <FaFileExcel /> Procesar Planilla Excel
+              <Button type="submit" variant="success" size="sm" className="w-100 fw-bold d-flex align-items-center justify-content-center gap-2" disabled={procesando}>
+                <FaFileExcel /> {procesando ? "Procesando..." : "Procesar Planilla Excel"}
               </Button>
             </Col>
           </Form>
         </Card.Body>
       </Card>
 
-      {/* 🔍 BARRA SUPERIOR DE FILTROS EN TIEMPO REAL */}
+      {/* BARRA SUPERIOR DE FILTROS EN TIEMPO REAL */}
       <Card className="border-0 shadow-sm rounded-3 mb-4 bg-white p-3">
         <Row className="g-3 align-items-end small">
           <Col xs={12} md={5}>
@@ -328,12 +387,8 @@ export default function Products() {
                 <FaSearch size={11} /> Buscador por Nombre (Mientras ingresa):
               </Form.Label>
               <Form.Control
-                type="text"
-                size="sm"
-                placeholder="Ej: Manguera, Esmeril, Cerrojo..."
-                className="bg-light"
-                value={busquedaNombre}
-                onChange={(e) => { setBusquedaNombre(e.target.value); setPaginaActual(1); }}
+                type="text" size="sm" placeholder="Ej: Manguera, Esmeril, Cerrojo..." className="bg-light"
+                value={busquedaNombre} onChange={(e) => { setBusquedaNombre(e.target.value); setPaginaActual(1); }}
               />
             </Form.Group>
           </Col>
@@ -343,12 +398,8 @@ export default function Products() {
                 <FaBarcode size={11} /> Filtrar por SKU:
               </Form.Label>
               <Form.Control
-                type="text"
-                size="sm"
-                placeholder="Ej: SLA02"
-                className="bg-light font-monospace fw-semibold"
-                value={filtroSku}
-                onChange={(e) => { setFiltroSku(e.target.value); setPaginaActual(1); }}
+                type="text" size="sm" placeholder="Ej: SLA02" className="bg-light font-monospace fw-semibold"
+                value={filtroSku} onChange={(e) => { setFiltroSku(e.target.value); setPaginaActual(1); }}
               />
             </Form.Group>
           </Col>
@@ -358,9 +409,7 @@ export default function Products() {
                 <FaTags size={11} /> Categoría Madre:
               </Form.Label>
               <Form.Select
-                size="sm"
-                className="bg-light fw-medium"
-                value={filtroCategoria}
+                size="sm" className="bg-light fw-medium" value={filtroCategoria}
                 onChange={(e) => { setFiltroCategoria(e.target.value); setPaginaActual(1); }}
               >
                 <option value="">-- Todas las Categorías --</option>
@@ -392,7 +441,7 @@ export default function Products() {
                     <th>Subcategoría</th>
                     <th style={{ width: "120px" }}>Tipo Contable</th>
                     <th className="text-center" style={{ width: "95px" }}>Stock</th>
-                    <th className="text-end pe-3" style={{ width: "100px" }}>Acciones</th>
+                    <th className="text-end pe-3" style={{ width: "140px" }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -434,6 +483,9 @@ export default function Products() {
                         </td>
                         <td className="text-end pe-3">
                           <div className="d-flex justify-content-end gap-1">
+                            <Button variant="outline-primary" size="sm" className="py-1 px-2 border-0" title="Imprimir Etiqueta Barcode" onClick={() => handleOpenBarcode(prod)}>
+                              <FaBarcode size={14} />
+                            </Button>
                             <Button variant="outline-secondary" size="sm" className="py-1 px-2 border-0" onClick={() => handleOpenEdit(prod)}><FaEdit size={14} /></Button>
                             <Button variant="outline-danger" size="sm" className="py-1 px-2 border-0" onClick={() => handleDeleteProduct(prod.id)}><FaTrashAlt size={14} /></Button>
                           </div>
@@ -446,9 +498,6 @@ export default function Products() {
             </div>
           </Card>
 
-          {/* ================================================================ */}
-          {/* 📊 NUEVO CONTROL DE PAGINACIÓN COMPACTA EN LA PARTE INFERIOR     */}
-          {/* ================================================================ */}
           {totalPaginas > 1 && (
             <div className="d-flex justify-content-center mt-4">
               <Pagination size="sm">
@@ -467,19 +516,36 @@ export default function Products() {
         </>
       )}
 
-      {/* MODAL DE APERTURA */}
+      {/* 📋 MODAL INTEGRADO: CREAR / VER - EDITAR */}
       <Modal show={showModal} onHide={() => setShowModal(false)} size="lg" centered backdrop="static">
         <Form onSubmit={handleSaveProduct}>
           <Modal.Header closeButton className="bg-dark text-white py-3">
-            <Modal.Title className="fw-bold fs-5">{isEdit ? "✏️ Modificar Parámetros de Artículo" : "🆕 Catalogar Artículo en Maestro"}</Modal.Title>
+            <Modal.Title className="fw-bold fs-5">
+              {isEdit ? "✏️ Ficha: Ver y Modificar Parámetros de Artículo" : "🆕 Catalogar Artículo en Maestro"}
+            </Modal.Title>
           </Modal.Header>
           <Modal.Body className="bg-light">
             <Row className="g-3">
-              {formData.url_foto && (
-                <Col md={12} className="text-center mb-2">
-                  <img src={formData.url_foto} alt="Preview" className="img-thumbnail shadow-sm object-fit-contain" style={{ maxHeight: "160px" }} />
+              
+              {/* EL CÓDIGO DE BARRAS SOLO SE MUESTRA SI ES MODO EDICIÓN */}
+              {isEdit && formData.codigo_sku && (
+                <Col md={12} className="text-center mb-3 animate__animated animate__fadeIn">
+                  <div className="p-2 bg-white rounded border d-inline-block shadow-xs">
+                    <small className="text-muted fw-bold d-block mb-1 font-monospace" style={{ fontSize: '0.68rem' }}>IDENTIFICADOR FÍSICO (CODE 128)</small>
+                    <Barcode 
+                      value={formData.codigo_sku} format="CODE128" width={1.5} height={40} fontSize={11} background="#ffffff" lineColor="#000000"
+                    />
+                  </div>
                 </Col>
               )}
+
+              {/* La imagen se renderiza siempre que exista (tanto al crear como al editar) */}
+              {formData.url_foto && (
+                <Col md={12} className="text-center mb-2 animate__animated animate__fadeIn">
+                  <img src={formData.url_foto} alt="Preview" className="img-thumbnail shadow-sm object-fit-contain" style={{ maxHeight: "140px" }} />
+                </Col>
+              )}
+              
               <Col md={4}>
                 <Form.Group>
                   <Form.Label className="small fw-bold">Código SKU (Automático)</Form.Label>
@@ -524,18 +590,15 @@ export default function Products() {
                 <Form.Group>
                   <Form.Label className="small fw-bold">Fotografía del Activo (Compresión Base64)</Form.Label>
                   <div className="d-flex gap-2">
-                    <Form.Control type="text" placeholder="Código Base64 de la imagen cargada..." value={formData.url_foto ? `${formData.url_foto.substring(0, 40)}... (Serializado)` : ""} readOnly className="bg-white text-muted small" />
+                    <Form.Control type="text" placeholder="Código Base64..." value={formData.url_foto ? `${formData.url_foto.substring(0, 30)}... (Serializado)` : ""} readOnly className="bg-white text-muted small" />
                     <Button variant="outline-dark" className="d-flex align-items-center gap-1 flex-shrink-0" onClick={() => {
                       const inputElement = document.createElement("input");
-                      inputElement.type = "file";
-                      inputElement.accept = "image/*";
+                      inputElement.type = "file"; inputElement.accept = "image/*";
                       inputElement.onchange = (event) => {
                         const selectedFile = event.target.files[0];
                         if (selectedFile) {
                           const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setFormData({ ...formData, url_foto: reader.result });
-                          };
+                          reader.onloadend = () => { setFormData({ ...formData, url_foto: reader.result }); };
                           reader.readAsDataURL(selectedFile);
                         }
                       };
@@ -549,16 +612,42 @@ export default function Products() {
               <Col md={12}>
                 <Form.Group>
                   <Form.Label className="small fw-bold">Ficha Técnico / Notas Adicionales</Form.Label>
-                  <Form.Control as="textarea" rows={3} placeholder="Detalles de hilos, presiones máximas o especificaciones mecánicas del componente..." value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} />
+                  <Form.Control as="textarea" rows={3} placeholder="Detalles mecánicos..." value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} />
                 </Form.Group>
               </Col>
             </Row>
           </Modal.Body>
           <Modal.Header className="bg-white py-2 d-flex justify-content-end gap-2 border-top">
             <Button variant="outline-secondary" size="sm" className="fw-bold" onClick={() => setShowModal(false)}>Cancelar</Button>
-            <Button variant="dark" size="sm" type="submit" className="fw-bold px-4">⚡ Guardar Cambios en Maestro</Button>
+            <Button variant="dark" size="sm" type="submit" className="fw-bold px-4" disabled={procesando}>⚡ {procesando ? "Guardando..." : "Guardar Cambios"}</Button>
           </Modal.Header>
         </Form>
+      </Modal>
+
+      {/* MODAL EXCLUSIVO DE IMPRESIÓN */}
+      <Modal show={showBarcodeModal} onHide={() => setShowBarcodeModal(false)} size="md" centered>
+        <Modal.Header closeButton className="bg-dark text-white py-2">
+          <Modal.Title className="fw-bold fs-6 d-flex align-items-center gap-2"><FaBarcode /> Impresión de Etiqueta Térmica</Modal.Title>
+        </Modal.Header>
+        <Modal.Body className="bg-white text-center py-4">
+          {productoParaEtiqueta && (
+            <div id="print-barcode-area" className="p-3 border rounded bg-white shadow-xs d-inline-block">
+              <span className="fw-bold d-block text-dark text-uppercase font-sans" style={{ fontSize: "0.85rem" }}>{productoParaEtiqueta.nombre}</span>
+              <small className="text-muted d-block font-monospace mb-1" style={{ fontSize: "0.72rem" }}>{productoParaEtiqueta.categoria_nombre || "Insumo Servilift"}</small>
+              <div className="my-2 d-flex justify-content-center">
+                <Barcode value={productoParaEtiqueta.codigo_sku} format="CODE128" width={1.6} height={55} fontSize={12} fontOptions="bold" background="#ffffff" lineColor="#000000" />
+              </div>
+              <div className="d-flex justify-content-between align-items-center px-1 border-top pt-1 mt-1 text-muted" style={{ fontSize: "0.65rem" }}>
+                <span>TIPO: {productoParaEtiqueta.tipo_activo === "ACTIVO_FIJO" ? "FIJO" : "CIRCULANTE"}</span>
+                <strong className="text-dark">SERVILIFT ERP</strong>
+              </div>
+            </div>
+          )}
+        </Modal.Body>
+        <Modal.Footer className="bg-light py-2">
+          <Button variant="outline-secondary" size="sm" className="fw-bold" onClick={() => setShowBarcodeModal(false)}>Cerrar</Button>
+          <Button variant="primary" size="sm" className="fw-bold d-flex align-items-center gap-2 px-4 shadow-sm" onClick={handlePrintBarcode}><FaPrint /> Mandar a Impresora</Button>
+        </Modal.Footer>
       </Modal>
     </div>
   );

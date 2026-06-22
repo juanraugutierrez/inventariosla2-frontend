@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import { Modal, Button, Form, Table, Card, Alert } from "react-bootstrap";
 
 function Warehouses() {
-  const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+ const API_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3000/api"              // 💻 Servidor Local (HTTP plano sin SSL)
+    : "https://api.sla-inventario.cl/api";
 
   const [bodegas, setBodegas] = useState([]);
   const [usuarios, setUsuarios] = useState([]); // Sincronizado con tu endpoint real de /users
