@@ -3,7 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { 
   FaUsers, FaUserShield, FaBoxes, FaWarehouse, FaChartPie, 
   FaSignOutAlt, FaPlusCircle, FaMinusCircle, FaHistory, 
-  FaClipboardList, FaChevronDown, FaChevronRight, FaUserCircle 
+  FaClipboardList, FaChevronDown, FaChevronRight, FaUserCircle,
+  FaBalanceScale // 🔑 Ícono importado para el mantenedor paramétrico
 } from 'react-icons/fa';
 
 export default function Sidebar({ collapsed }) {
@@ -29,13 +30,11 @@ export default function Sidebar({ collapsed }) {
     if (sesionGuardada) {
       try {
         const datosParseados = JSON.parse(sesionGuardada);
-        // Fallback para capturar tanto el nodo anidado como el plano
         const userObj = datosParseados.usuario ? datosParseados.usuario : datosParseados;
         
         setUsuario(userObj);
 
-        // 🌟 AUTO-EXPANSIÓN DE SEGURIDAD OPERATIVA:
-        // Si el usuario es de bodega o técnico, le abrimos el acordeón automáticamente
+        // AUTO-EXPANSIÓN DE SEGURIDAD OPERATIVA
         const perfilNormalizado = String(userObj.perfil_nombre || userObj.perfil || userObj.cargo || '').toUpperCase().trim();
         if (perfilNormalizado === 'BODEGUERO' || perfilNormalizado === 'TECNICO') {
           setOpenOperaciones(true);
@@ -60,15 +59,13 @@ export default function Sidebar({ collapsed }) {
     }
   }, [location]);
 
-  // 🛡️ DESCODIFICADOR MAESTRO DE PERMISOS: Tolerante a fallas y formatos mixtos de BBDD
+  // 🛡️ DESCODIFICADOR MAESTRO DE PERMISOS REAL
   const tienePermiso = (codigoPermiso) => {
     if (loading || !usuario) return false;
 
-    // 1. Bypass absoluto para la cuenta del ADMINISTRADOR
     const perfilNormalizado = String(usuario.perfil_nombre || usuario.perfil || usuario.cargo || '').toUpperCase().trim();
     if (perfilNormalizado === 'ADMINISTRADOR') return true;
 
-    // 2. Control de contingencia física por nombre de Rol si los arreglos vienen corruptos desde el backend
     if (perfilNormalizado === 'BODEGUERO') {
       if (codigoPermiso === 'Ingresar Stock' || codigoPermiso === 'Retirar Stock') return true;
     }
@@ -76,11 +73,9 @@ export default function Sidebar({ collapsed }) {
       if (codigoPermiso === 'Retirar Stock') return true;
     }
 
-    // 3. Si el backend sí envió el array, lo aplanamos de forma inteligente por si vienen objetos anidados de Prisma
     const listaOriginal = usuario.permisos || [];
     if (!Array.isArray(listaOriginal)) return false;
 
-    // Convertimos cualquier variante (objeto relacional, nombre o id) a un string plano unificado
     const permisosAplanados = listaOriginal.map(p => {
       if (typeof p === 'string') return p.toLowerCase().trim();
       if (p && typeof p === 'object') {
@@ -93,7 +88,6 @@ export default function Sidebar({ collapsed }) {
     return permisosAplanados.includes(codigoPermiso.toLowerCase().trim());
   };
 
-  // Reglas de visualización de bloques padres basados en el descodificador
   const puedeVerSeguridad = tienePermiso('Administrar Roles') || tienePermiso('Ver y Editar Usuarios');
   const puedeVerInfraestructura = tienePermiso('Crear Bodegas') || tienePermiso('Visualizar Reportes') || tienePermiso('Ingresar Stock') || tienePermiso('Retirar Stock'); 
   const puedeVerOperaciones = tienePermiso('Ingresar Stock') || tienePermiso('Retirar Stock');
@@ -199,11 +193,18 @@ export default function Sidebar({ collapsed }) {
                         <FaWarehouse size={16} /> <span>Bodegas</span>
                       </Link>
                     )}
+                    
                     <Link to="/products" className={obtenerClaseRuta('/products')}>
                       <FaBoxes size={16} /> <span>Productos / SKUs</span>
                     </Link>
+
                     <Link to="/categorias" className={obtenerClaseRuta('/categorias')}>
-                      <FaClipboardList size={16} /> <span>Categorías</span>
+                      <FaClipboardList size={16} /> <span>Categorías y Subs</span>
+                    </Link>
+
+                    {/* 🔑 NUEVA OPCIÓN DINÁMICA PARAMÉTRICA VINCULADA */}
+                    <Link to="/categorias/unidades" className={obtenerClaseRuta('/categorias/unidades')}>
+                      <FaBalanceScale size={16} className="text-primary" /> <span>Unidades de Medida</span>
                     </Link>
                   </div>
                 )}
@@ -239,6 +240,9 @@ export default function Sidebar({ collapsed }) {
                         <FaMinusCircle size={16} className="text-danger" /> <span>Retirar Stock</span>
                       </Link>
                     )}
+                    <Link to="/movimientos/traspasos" className={obtenerClaseRuta('/movimientos/traspasos')}>
+                      <FaSignOutAlt size={16} className="text-warning" style={{ transform: 'rotate(180deg)' }} /> <span>Traspaso Interno</span>
+                    </Link>
                   </div>
                 )}
               </>
@@ -268,6 +272,9 @@ export default function Sidebar({ collapsed }) {
                     </Link>
                     <Link to="/inventario/historial-salidas" className={obtenerClaseRuta('/inventario/historial-salidas')}>
                       <FaHistory size={16} /> <span>Historial Salidas</span>
+                    </Link>
+                    <Link to="/reports/compras-automaticas" className={obtenerClaseRuta('/reports/compras-automaticas')}>
+                      <FaClipboardList size={16} className="text-info" /> <span>Propuestas de Compra</span>
                     </Link>
                   </div>
                 )}
@@ -306,7 +313,6 @@ export default function Sidebar({ collapsed }) {
           </button>
         )}
       </div>
-
     </div>
   );
 }
